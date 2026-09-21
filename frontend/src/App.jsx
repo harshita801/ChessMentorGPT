@@ -266,7 +266,7 @@ export default function App() {
     if (!gameRef.current) return;
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/engine-move', {
+      const res = await fetch('https://chessmentorgpt-backend.onrender.com/api/engine-move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -347,7 +347,7 @@ export default function App() {
     const currentFen = gameRef.current ? gameRef.current.fen() : "";
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/query', {
+      const res = await fetch('https://chessmentorgpt-backend.onrender.com/api/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
