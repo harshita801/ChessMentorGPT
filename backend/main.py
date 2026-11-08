@@ -1,5 +1,6 @@
 import os
 import random
+import sqlite3
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -19,16 +20,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Database Setup for Persistent User Ratings ---
+DB_FILE = "chess_users.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            rating INTEGER DEFAULT 0
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
 
 class EngineRequest(BaseModel):
     fen: str
-    player_elo: int = 800
+    player_elo: int = 0
 
 class QueryRequest(BaseModel):
     prompt: str
     fen: str = ""
+
+class RatingUpdateRequest(BaseModel):
+    user_id: str = "default_user"
+    rating: int
 
 def analyze_board_position(fen_str: str) -> str:
     try:
@@ -57,6 +79,30 @@ def analyze_board_position(fen_str: str) -> str:
         analysis += f" Attacking Checks: {', '.join(checks[:3])}."
         
     return analysis
+
+@app.get("/api/user/{user_id}/rating")
+def get_user_rating(user_id: str):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT rating FROM users WHERE username = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("INSERT OR REPLACE INTO users (username, rating) VALUES (?, 0)", (user_id,))
+        conn.commit()
+        rating = 0
+    else:
+        rating = row[0]
+    conn.close()
+    return {"rating": rating}
+
+@app.post("/api/update-rating")
+def update_rating(req: RatingUpdateRequest):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO users (username, rating) VALUES (?, ?)", (req.user_id, req.rating))
+    conn.commit()
+    conn.close()
+    return {"status": "success", "rating": req.rating}
 
 @app.post("/api/engine-move")
 def get_engine_move(req: EngineRequest):
@@ -116,7 +162,6 @@ def process_query(req: QueryRequest):
         }
     ]
 
-    # Models list to fall back sequentially if a rate limit or model drop occurs
     models_to_try = [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
@@ -129,15 +174,14 @@ def process_query(req: QueryRequest):
                 model=model_name,
                 messages=user_messages,
                 temperature=0.7,
-                max_tokens=400,  # Increased token limit to eliminate cut-offs
+                max_tokens=400,
             )
             res = completion.choices[0].message.content
-            if res and res.strip():
+            if res and res.src():
                 return {"llm_response": res.strip()}
         except Exception as err:
             print(f"⚠️ Groq Model ({model_name}) error: {err}")
 
-    # Friendly conversational fallback instead of raw code output
     return {
         "llm_response": "I'm right here with you! Take a look at controlling the center or developing one of your knights or bishops toward an active square."
     }
