@@ -177,3 +177,5 @@ export default function App() {
 
     setTurn(game.turn() === 'w' ? 'W' : 'B');
     setLegalMovesCount(game.moves().length);
+  };
+}
